@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   ArrowRight,
   Bell,
@@ -12,11 +12,20 @@ import {
   TrendingUp,
   Wallet,
 } from 'lucide-react';
-import { getSupabaseClient } from './lib/supabase';
+import {
+  getCurrentUser,
+  getSession,
+  getSupabaseClient,
+  signInWithSupabase,
+  signOutFromSupabase,
+  signUpWithSupabase,
+} from './lib/supabase';
+import { getHostedPaymentCheckoutUrl, getPaymentProviderStatus } from './lib/payment';
 
 type PaymentTab = 'crypto' | 'card' | 'bank';
 type TransactionStatus = 'pending' | 'approved' | 'rejected' | 'completed';
 type TransactionType = 'deposit' | 'withdrawal';
+type AuthMode = 'login' | 'signup';
 
 type WalletAddress = {
   symbol: 'BTC' | 'USDT' | 'ETH';
@@ -36,8 +45,6 @@ type Transaction = {
   createdAt: string;
   reference: string;
 };
-
-type AuthMode = 'login' | 'signup';
 
 const walletAddresses: WalletAddress[] = [
   {
@@ -117,7 +124,9 @@ const formatCurrency = (value: number) =>
 export default function App() {
   const [isSupabaseReady, setIsSupabaseReady] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [statusMessage, setStatusMessage] = useState('');
   const [authForm, setAuthForm] = useState({
     fullName: '',
     email: '',
@@ -153,11 +162,24 @@ export default function App() {
     destination: '',
     note: '',
   });
-  const [statusMessage, setStatusMessage] = useState('');
 
   useEffect(() => {
-    const supabase = getSupabaseClient();
-    setIsSupabaseReady(Boolean(supabase));
+    const supabaseClient = getSupabaseClient();
+    setIsSupabaseReady(Boolean(supabaseClient));
+
+    const hydrateSession = async () => {
+      try {
+        const { session, user } = await getSession();
+        if (session && user) {
+          setIsLoggedIn(true);
+          setIsAdmin(Boolean(user.email?.toLowerCase().includes('admin')));
+        }
+      } catch {
+        setIsLoggedIn(false);
+      }
+    };
+
+    void hydrateSession();
   }, []);
 
   const dashboardStats = useMemo(() => {
@@ -175,23 +197,19 @@ export default function App() {
     };
   }, [transactions]);
 
-  const handleAuthSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const paymentStatus = getPaymentProviderStatus();
 
-    if (!isSupabaseReady) {
-      setIsLoggedIn(true);
-      setStatusMessage('Demo mode: signed in successfully.');
-      return;
-    }
-
-    setStatusMessage('Supabase is configured. You can now connect a real auth flow.');
-    setIsLoggedIn(true);
-  };
-
-  const addTransaction = (type: TransactionType, method: PaymentTab, asset: string, amount: number, status: TransactionStatus, reference: string) => {
+  const addTransaction = (
+    type: TransactionType,
+    method: PaymentTab,
+    asset: string,
+    amount: number,
+    status: TransactionStatus,
+    reference: string
+  ) => {
     const newTransaction: Transaction = {
       id: `TX-${Math.floor(Date.now() % 9000 + 1000)}`,
-      user: 'Demo Investor',
+      user: authForm.email || 'Demo Investor',
       type,
       method,
       asset,
@@ -204,9 +222,77 @@ export default function App() {
     setTransactions((current) => [newTransaction, ...current]);
   };
 
-  const handleCryptoDeposit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleApproval = (transactionId: string, nextStatus: TransactionStatus) => {
+    setTransactions((current) =>
+      current.map((item) =>
+        item.id === transactionId ? { ...item, status: nextStatus } : item
+      )
+    );
+    setStatusMessage(`Transaction ${transactionId} marked as ${nextStatus}.`);
+  };
+
+  const handleAuthSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    if (!isSupabaseReady) {
+      const demoAdmin = authForm.email.toLowerCase().includes('admin') || authForm.fullName.toLowerCase().includes('admin');
+      setIsAdmin(demoAdmin);
+      setIsLoggedIn(true);
+      setStatusMessage('Demo mode: session started locally because Supabase is not configured yet.');
+      return;
+    }
+
+    try {
+      if (authMode === 'signup') {
+        const { error } = await signUpWithSupabase({
+          email: authForm.email,
+          password: authForm.password,
+          fullName: authForm.fullName,
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        setStatusMessage('Signup successful. Please check your email to confirm your account.');
+      } else {
+        const { error } = await signInWithSupabase({
+          email: authForm.email,
+          password: authForm.password,
+        });
+
+        if (error) {
+          throw error;
+        }
+      }
+
+      const { user } = await getCurrentUser();
+      const adminState = Boolean(user?.email?.toLowerCase().includes('admin'));
+      setIsAdmin(adminState);
+      setIsLoggedIn(true);
+      setStatusMessage('Authenticated using Supabase.');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Authentication failed.';
+      setStatusMessage(message);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      if (isSupabaseReady) {
+        await signOutFromSupabase();
+      }
+    } catch {
+      // no-op fallback
+    }
+
+    setIsLoggedIn(false);
+    setIsAdmin(false);
+    setStatusMessage('Logged out successfully.');
+  };
+
+  const handleCryptoDeposit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     const amount = Number(cryptoForm.amount);
     if (!cryptoForm.walletAddress || !amount || amount <= 0) {
       setStatusMessage('Please provide a valid amount and wallet address.');
@@ -218,7 +304,7 @@ export default function App() {
     setCryptoForm({ coin: 'BTC', amount: '', walletAddress: '', txHash: '' });
   };
 
-  const handleCardDeposit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleCardDeposit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const amount = Number(cardForm.amount);
     if (!cardForm.cardNumber || !cardForm.expiry || !cardForm.cvv || !amount || amount <= 0) {
@@ -231,7 +317,7 @@ export default function App() {
     setCardForm({ fullName: '', cardNumber: '', expiry: '', cvv: '', amount: '' });
   };
 
-  const handleBankDeposit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleBankDeposit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const amount = Number(bankForm.amount);
     if (!bankForm.bankName || !bankForm.accountHolder || !bankForm.accountNumber || !amount || amount <= 0) {
@@ -244,7 +330,7 @@ export default function App() {
     setBankForm({ bankName: '', accountHolder: '', accountNumber: '', routing: '', amount: '', reference: '' });
   };
 
-  const handleWithdrawal = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleWithdrawal = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const amount = Number(withdrawalForm.amount);
     if (!withdrawalForm.destination || !amount || amount <= 0) {
@@ -252,7 +338,14 @@ export default function App() {
       return;
     }
 
-    addTransaction('withdrawal', withdrawalForm.method as PaymentTab, withdrawalForm.asset, amount, 'pending', `WDL-${withdrawalForm.method.toUpperCase()}-${Date.now()}`);
+    addTransaction(
+      'withdrawal',
+      withdrawalForm.method as PaymentTab,
+      withdrawalForm.asset,
+      amount,
+      'pending',
+      `WDL-${withdrawalForm.method.toUpperCase()}-${Date.now()}`
+    );
     setStatusMessage('Withdrawal request submitted and is pending approval.');
     setWithdrawalForm({ method: 'crypto', asset: 'BTC', amount: '', destination: '', note: '' });
   };
@@ -282,17 +375,13 @@ export default function App() {
             <button className="icon-button" aria-label="Notifications">
               <Bell size={16} />
             </button>
-            <button
-              type="button"
-              className="logout-button"
-              onClick={() => setIsLoggedIn(false)}
-            >
+            <button type="button" className="logout-button" onClick={handleLogout}>
               <LogOut size={16} />
               Logout
             </button>
           </div>
         ) : (
-          <button className="primary-button" onClick={() => setAuthMode('login')}>
+          <button type="button" className="primary-button" onClick={() => setAuthMode('login')}>
             Sign in
           </button>
         )}
@@ -373,7 +462,7 @@ export default function App() {
               <h2>Welcome back, Demo Investor.</h2>
             </div>
             <div className="status-card">
-              <span className="status-dot online" />
+              <span className={`status-dot ${isSupabaseReady ? 'online' : 'offline'}`} />
               {isSupabaseReady ? 'Supabase connected' : 'Demo mode enabled'}
             </div>
           </section>
@@ -514,6 +603,11 @@ export default function App() {
                     </label>
                   </div>
 
+                  <div className="status-card compact">
+                    <span className={`status-dot ${paymentStatus.ready ? 'online' : 'offline'}`} />
+                    {paymentStatus.message}
+                  </div>
+
                   <button type="submit" className="primary-button full-width">
                     <CreditCard size={18} />
                     Submit card deposit
@@ -645,6 +739,7 @@ export default function App() {
                     <th>Status</th>
                     <th>Reference</th>
                     <th>Date</th>
+                    {isAdmin ? <th>Admin</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -659,6 +754,18 @@ export default function App() {
                       </td>
                       <td>{transaction.reference}</td>
                       <td>{transaction.createdAt}</td>
+                      {isAdmin ? (
+                        <td>
+                          <div className="admin-actions">
+                            <button type="button" className="mini-action approve" onClick={() => handleApproval(transaction.id, 'approved')}>
+                              Approve
+                            </button>
+                            <button type="button" className="mini-action reject" onClick={() => handleApproval(transaction.id, 'rejected')}>
+                              Reject
+                            </button>
+                          </div>
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>
