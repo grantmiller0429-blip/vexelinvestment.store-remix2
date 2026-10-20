@@ -2,520 +2,706 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
   Bell,
+  Bitcoin,
   CheckCircle2,
-  ChevronRight,
+  CreditCard,
   Landmark,
-  MessageCircleMore,
-  Minus,
-  Plus,
+  LogOut,
+  MessageSquareText,
   ShieldCheck,
-  ShoppingCart,
-  Sparkles,
-  Star,
   TrendingUp,
   Wallet,
 } from 'lucide-react';
 import { getSupabaseClient } from './lib/supabase';
 
-const defaultProducts = [
+type PaymentTab = 'crypto' | 'card' | 'bank';
+type TransactionStatus = 'pending' | 'approved' | 'rejected' | 'completed';
+type TransactionType = 'deposit' | 'withdrawal';
+
+type WalletAddress = {
+  symbol: 'BTC' | 'USDT' | 'ETH';
+  label: string;
+  network: string;
+  address: string;
+};
+
+type Transaction = {
+  id: string;
+  user: string;
+  type: TransactionType;
+  method: PaymentTab | 'crypto' | 'card' | 'bank';
+  asset: string;
+  amount: number;
+  status: TransactionStatus;
+  createdAt: string;
+  reference: string;
+};
+
+type AuthMode = 'login' | 'signup';
+
+const walletAddresses: WalletAddress[] = [
   {
-    id: 'growth-portfolio',
-    name: 'Core Growth Portfolio',
-    tag: 'Most popular',
-    price: 25000,
-    description: 'Balanced long-term equity and private-credit allocation with disciplined rebalancing.',
-    category: 'Portfolio',
+    symbol: 'BTC',
+    label: 'Bitcoin wallet',
+    network: 'Bitcoin Network',
+    address: 'bc1q7x9e5p2l4j8n5m6t2r7u0d9w4c1k2v',
   },
   {
-    id: 'income-reserve',
-    name: 'Income Reserve',
-    tag: 'Income Focus',
-    price: 10000,
-    description: 'Yield-first strategy built for cash flow, stability, and lower volatility exposure.',
-    category: 'Income',
+    symbol: 'USDT',
+    label: 'Tether wallet',
+    network: 'TRC20 / ERC20',
+    address: 'TQ2Qv8M7m4k3N6Z8q2mF3F9wK1Q3A8bYhL',
   },
   {
-    id: 'private-circle',
-    name: 'Private Access Circle',
-    tag: 'VIP',
-    price: 50000,
-    description: 'Premium allocation strategy with curated opportunities and periodic investor reviews.',
-    category: 'Private',
+    symbol: 'ETH',
+    label: 'Ethereum wallet',
+    network: 'Ethereum Network',
+    address: '0xA7E1fF5f80D8d2203bE2a91200B0B6Cd3BfA01b1',
   },
 ];
 
-const defaultMarket = [
-  { symbol: 'BTC', name: 'Bitcoin', price: '$68,440.28', change: '+3.41%', trend: 'up' },
-  { symbol: 'ETH', name: 'Ethereum', price: '$3,420.62', change: '+2.17%', trend: 'up' },
-  { symbol: 'SOL', name: 'Solana', price: '$162.90', change: '+5.67%', trend: 'up' },
-  { symbol: 'AAPL', name: 'Apple', price: '$214.16', change: '+1.12%', trend: 'up' },
-  { symbol: 'NVDA', name: 'NVIDIA', price: '$128.42', change: '-0.34%', trend: 'down' },
+const initialTransactions: Transaction[] = [
+  {
+    id: 'TX-1024',
+    user: 'Demo Investor',
+    type: 'deposit',
+    method: 'crypto',
+    asset: 'BTC',
+    amount: 0.18,
+    status: 'pending',
+    createdAt: '2026-10-18 09:40',
+    reference: 'DEP-BTC-1024',
+  },
+  {
+    id: 'TX-1021',
+    user: 'Demo Investor',
+    type: 'withdrawal',
+    method: 'bank',
+    asset: 'USD',
+    amount: 2200,
+    status: 'pending',
+    createdAt: '2026-10-17 18:55',
+    reference: 'WDL-BANK-1021',
+  },
+  {
+    id: 'TX-1018',
+    user: 'Demo Investor',
+    type: 'deposit',
+    method: 'card',
+    asset: 'USD',
+    amount: 1500,
+    status: 'approved',
+    createdAt: '2026-10-16 11:20',
+    reference: 'DEP-CARD-1018',
+  },
+  {
+    id: 'TX-1010',
+    user: 'Demo Investor',
+    type: 'deposit',
+    method: 'crypto',
+    asset: 'USDT',
+    amount: 4500,
+    status: 'completed',
+    createdAt: '2026-10-14 08:10',
+    reference: 'DEP-USDT-1010',
+  },
 ];
 
-const defaultPortfolio = [
-  { name: 'Global Equity', value: '$48.8k', change: '+2.1%' },
-  { name: 'Private Credit', value: '$12.3k', change: '+5.4%' },
-  { name: 'Real Estate', value: '$18.9k', change: '+4.1%' },
-  { name: 'Treasury', value: '$21.4k', change: '+0.12%' },
-];
-
-const testimonialData = [
-  {
-    quote: 'Vexel gave us clarity on performance, liquidity, and where to allocate next. It feels like a premium advisory desk in one interface.',
-    name: 'Alicia M.',
-    role: 'Founder, Northbridge Capital',
-  },
-  {
-    quote: 'The experience feels polished, credible, and serious. It is exactly what our investor-facing brand needed.',
-    name: 'Daniel R.',
-    role: 'Private Client',
-  },
-  {
-    quote: 'We moved from spreadsheets to a clear, strategic dashboard. The process feels more streamlined and far more trustworthy.',
-    name: 'Sonia K.',
-    role: 'Operations Lead, Aster Group',
-  },
-];
-
-const faqs = [
-  {
-    question: 'What does Vexel specialize in?',
-    answer: 'We help investors and clients manage diversified portfolios, improve decision-making, and access curated opportunities.',
-  },
-  {
-    question: 'How quickly can I get started?',
-    answer: 'Most onboarding starts with a consultation and portfolio review, followed by strategy alignment and activation in under a week.',
-  },
-  {
-    question: 'Is this more than a dashboard?',
-    answer: 'Yes. The platform blends advisory experience, portfolio visibility, and trust-building storefront presentation into one modern experience.',
-  },
-];
-
-function formatMoney(value: number) {
-  return new Intl.NumberFormat('en-US', {
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
-    maximumFractionDigits: 0,
+    maximumFractionDigits: value >= 1000 ? 0 : 2,
   }).format(value);
-}
 
-function App() {
-  const [products] = useState(defaultProducts);
-  const [marketData] = useState(defaultMarket);
-  const [portfolioRows] = useState(defaultPortfolio);
-  const [cart, setCart] = useState<Record<string, number>>({});
+export default function App() {
   const [isSupabaseReady, setIsSupabaseReady] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [authForm, setAuthForm] = useState({
+    fullName: '',
+    email: '',
+    password: '',
+  });
+  const [paymentTab, setPaymentTab] = useState<PaymentTab>('crypto');
+  const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
+  const [cryptoForm, setCryptoForm] = useState({
+    coin: 'BTC',
+    amount: '',
+    walletAddress: '',
+    txHash: '',
+  });
+  const [cardForm, setCardForm] = useState({
+    fullName: '',
+    cardNumber: '',
+    expiry: '',
+    cvv: '',
+    amount: '',
+  });
+  const [bankForm, setBankForm] = useState({
+    bankName: '',
+    accountHolder: '',
+    accountNumber: '',
+    routing: '',
+    amount: '',
+    reference: '',
+  });
+  const [withdrawalForm, setWithdrawalForm] = useState({
+    method: 'crypto',
+    asset: 'BTC',
+    amount: '',
+    destination: '',
+    note: '',
+  });
+  const [statusMessage, setStatusMessage] = useState('');
 
   useEffect(() => {
     const supabase = getSupabaseClient();
     setIsSupabaseReady(Boolean(supabase));
   }, []);
 
-  const cartItems = useMemo(
-    () =>
-      products
-        .filter((product) => (cart[product.id] ?? 0) > 0)
-        .map((product) => ({
-          ...product,
-          quantity: cart[product.id] ?? 0,
-        })),
-    [cart, products]
-  );
+  const dashboardStats = useMemo(() => {
+    const deposits = transactions.filter((item) => item.type === 'deposit');
+    const withdrawals = transactions.filter((item) => item.type === 'withdrawal');
+    const pending = transactions.filter((item) => item.status === 'pending');
+    const totalDeposits = deposits.reduce((sum, item) => sum + item.amount, 0);
+    const totalWithdrawals = withdrawals.reduce((sum, item) => sum + item.amount, 0);
 
-  const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const itemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+    return {
+      totalDeposits: formatCurrency(totalDeposits),
+      totalWithdrawals: formatCurrency(totalWithdrawals),
+      pendingCount: pending.length,
+      availableBalance: formatCurrency(Math.max(totalDeposits - totalWithdrawals, 0)),
+    };
+  }, [transactions]);
 
-  const addToCart = (productId: string) => {
-    setCart((current) => ({
-      ...current,
-      [productId]: (current[productId] ?? 0) + 1,
-    }));
+  const handleAuthSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!isSupabaseReady) {
+      setIsLoggedIn(true);
+      setStatusMessage('Demo mode: signed in successfully.');
+      return;
+    }
+
+    setStatusMessage('Supabase is configured. You can now connect a real auth flow.');
+    setIsLoggedIn(true);
   };
 
-  const updateQuantity = (productId: string, delta: number) => {
-    setCart((current) => {
-      const nextQty = (current[productId] ?? 0) + delta;
-      const nextState = { ...current };
-      if (nextQty <= 0) {
-        delete nextState[productId];
-      } else {
-        nextState[productId] = nextQty;
-      }
-      return nextState;
-    });
+  const addTransaction = (type: TransactionType, method: PaymentTab, asset: string, amount: number, status: TransactionStatus, reference: string) => {
+    const newTransaction: Transaction = {
+      id: `TX-${Math.floor(Date.now() % 9000 + 1000)}`,
+      user: 'Demo Investor',
+      type,
+      method,
+      asset,
+      amount,
+      status,
+      createdAt: new Date().toLocaleString(),
+      reference,
+    };
+
+    setTransactions((current) => [newTransaction, ...current]);
   };
+
+  const handleCryptoDeposit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const amount = Number(cryptoForm.amount);
+    if (!cryptoForm.walletAddress || !amount || amount <= 0) {
+      setStatusMessage('Please provide a valid amount and wallet address.');
+      return;
+    }
+
+    addTransaction('deposit', 'crypto', cryptoForm.coin, amount, 'pending', `DEP-${cryptoForm.coin}-${Date.now()}`);
+    setStatusMessage('Crypto deposit request submitted and is pending review.');
+    setCryptoForm({ coin: 'BTC', amount: '', walletAddress: '', txHash: '' });
+  };
+
+  const handleCardDeposit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const amount = Number(cardForm.amount);
+    if (!cardForm.cardNumber || !cardForm.expiry || !cardForm.cvv || !amount || amount <= 0) {
+      setStatusMessage('Please complete the card form before submitting.');
+      return;
+    }
+
+    addTransaction('deposit', 'card', 'USD', amount, 'pending', `DEP-CARD-${Date.now()}`);
+    setStatusMessage('Card deposit submitted for review.');
+    setCardForm({ fullName: '', cardNumber: '', expiry: '', cvv: '', amount: '' });
+  };
+
+  const handleBankDeposit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const amount = Number(bankForm.amount);
+    if (!bankForm.bankName || !bankForm.accountHolder || !bankForm.accountNumber || !amount || amount <= 0) {
+      setStatusMessage('Please complete the bank deposit fields correctly.');
+      return;
+    }
+
+    addTransaction('deposit', 'bank', 'USD', amount, 'pending', `DEP-BANK-${Date.now()}`);
+    setStatusMessage('Bank deposit request pending review.');
+    setBankForm({ bankName: '', accountHolder: '', accountNumber: '', routing: '', amount: '', reference: '' });
+  };
+
+  const handleWithdrawal = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const amount = Number(withdrawalForm.amount);
+    if (!withdrawalForm.destination || !amount || amount <= 0) {
+      setStatusMessage('Please provide a valid destination and withdrawal amount.');
+      return;
+    }
+
+    addTransaction('withdrawal', withdrawalForm.method as PaymentTab, withdrawalForm.asset, amount, 'pending', `WDL-${withdrawalForm.method.toUpperCase()}-${Date.now()}`);
+    setStatusMessage('Withdrawal request submitted and is pending approval.');
+    setWithdrawalForm({ method: 'crypto', asset: 'BTC', amount: '', destination: '', note: '' });
+  };
+
+  const pendingTransactions = transactions.filter((item) => item.status === 'pending');
 
   return (
-    <div className="store-shell">
-      <header className="store-header">
-        <div className="brand-wrap">
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand-block">
           <div className="brand-mark">V</div>
           <div>
             <div className="brand-name">Vexel Investment</div>
-            <div className="brand-subtitle">Private wealth strategy</div>
+            <div className="brand-subtitle">Private wealth dashboard</div>
           </div>
         </div>
 
-        <nav className="store-nav" aria-label="Main navigation">
-          <a href="#markets">Markets</a>
-          <a href="#products">Offers</a>
-          <a href="#dashboard">Dashboard</a>
-          <a href="#contact">Contact</a>
+        <nav className="main-nav" aria-label="Main navigation">
+          <a href="#overview">Overview</a>
+          <a href="#deposits">Deposits</a>
+          <a href="#history">History</a>
+          <a href="#security">Security</a>
         </nav>
 
-        <div className="header-actions">
-          <button className="icon-button" aria-label="Alerts">
-            <Bell size={16} />
+        {isLoggedIn ? (
+          <div className="user-actions">
+            <button className="icon-button" aria-label="Notifications">
+              <Bell size={16} />
+            </button>
+            <button
+              type="button"
+              className="logout-button"
+              onClick={() => setIsLoggedIn(false)}
+            >
+              <LogOut size={16} />
+              Logout
+            </button>
+          </div>
+        ) : (
+          <button className="primary-button" onClick={() => setAuthMode('login')}>
+            Sign in
           </button>
-          <button className="outline-button">Book consult</button>
-        </div>
+        )}
       </header>
 
-      <main className="page-body">
-        <section className="hero-section">
-          <div className="hero-copy">
-            <span className="eyebrow">Private capital • smarter growth</span>
-            <h1>Premium investment strategy for higher-conviction growth.</h1>
-            <p>
-              Build resilient wealth with a modern advisory experience, transparent portfolio reporting, and access to curated investment channels.
-            </p>
+      {!isLoggedIn ? (
+        <main className="auth-page">
+          <section className="auth-panel">
+            <div className="auth-copy">
+              <span className="eyebrow">Secure access</span>
+              <h1>Access your Vexel investment dashboard.</h1>
+              <p>
+                Manage deposits, withdrawals, wallet addresses, and account activity from one secure portal.
+              </p>
+              <div className="security-points">
+                <div><ShieldCheck size={16} /> End-to-end protection</div>
+                <div><TrendingUp size={16} /> Real-time tracking</div>
+                <div><Wallet size={16} /> Multi-currency wallet support</div>
+              </div>
+            </div>
 
-            <div className="cta-row">
-              <button className="primary-button">
-                Get started <ArrowRight size={18} />
+            <form className="auth-form" onSubmit={handleAuthSubmit}>
+              <div className="segmented-control">
+                <button type="button" className={authMode === 'login' ? 'segment active' : 'segment'} onClick={() => setAuthMode('login')}>
+                  Login
+                </button>
+                <button type="button" className={authMode === 'signup' ? 'segment active' : 'segment'} onClick={() => setAuthMode('signup')}>
+                  Sign up
+                </button>
+              </div>
+
+              {authMode === 'signup' && (
+                <label>
+                  <span>Full name</span>
+                  <input
+                    type="text"
+                    placeholder="Your full name"
+                    value={authForm.fullName}
+                    onChange={(event) => setAuthForm((current) => ({ ...current, fullName: event.target.value }))}
+                  />
+                </label>
+              )}
+
+              <label>
+                <span>Email</span>
+                <input
+                  type="email"
+                  placeholder="you@example.com"
+                  value={authForm.email}
+                  onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
+                />
+              </label>
+
+              <label>
+                <span>Password</span>
+                <input
+                  type="password"
+                  placeholder="Your password"
+                  value={authForm.password}
+                  onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))}
+                />
+              </label>
+
+              <button type="submit" className="primary-button full-width">
+                {authMode === 'login' ? 'Login to dashboard' : 'Create account'}
+                <ArrowRight size={18} />
               </button>
-              <button className="secondary-button">Explore portfolio</button>
-            </div>
 
-            <div className="stat-grid">
-              <div className="stat-box">
-                <strong>$182M+</strong>
-                <span>Client assets guided</span>
-              </div>
-              <div className="stat-box">
-                <strong>13.8%</strong>
-                <span>Median return</span>
-              </div>
-              <div className="stat-box">
-                <strong>96%</strong>
-                <span>Retention</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="hero-visual">
-            <div className="portfolio-panel">
-              <div className="panel-header-row">
-                <div>
-                  <span className="tiny-label">Portfolio overview</span>
-                  <h3>$184,240.32</h3>
-                </div>
-                <span className="positive-pill">+12.4%</span>
-              </div>
-
-              <div className="chart-bars" aria-hidden="true">
-                <span style={{ height: '42%' }} />
-                <span style={{ height: '58%' }} />
-                <span style={{ height: '71%' }} />
-                <span style={{ height: '67%' }} />
-                <span style={{ height: '86%' }} />
-                <span style={{ height: '94%' }} />
-              </div>
-
-              <div className="mini-metrics">
-                <div className="mini-metric">
-                  <span>Net inflow</span>
-                  <strong>+$18.4k</strong>
-                </div>
-                <div className="mini-metric">
-                  <span>Yield</span>
-                  <strong>5.4%</strong>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="trust-strip">
-          <span>Trusted by founders, families, and investment teams</span>
-          <div className="brand-row">
-            <div>Northbridge</div>
-            <div>Helio</div>
-            <div>Aster</div>
-            <div>Summit</div>
-            <div>Ledgerly</div>
-          </div>
-        </section>
-
-        <section className="section-block" id="dashboard">
-          <div className="section-header">
-            <span className="eyebrow">Why clients choose us</span>
-            <h2>Strategy, visibility, and execution built for modern wealth.</h2>
-          </div>
-
-          <div className="feature-grid">
-            <article className="feature-card">
-              <div className="feature-icon"><ShieldCheck size={20} /></div>
-              <h3>Institutional-grade security</h3>
-              <p>Protected custody and transparent reporting built for confidence and long-term stability.</p>
-            </article>
-            <article className="feature-card">
-              <div className="feature-icon"><TrendingUp size={20} /></div>
-              <h3>Clear growth strategy</h3>
-              <p>Disciplined portfolio design focused on compounding returns and diversified opportunity.</p>
-            </article>
-            <article className="feature-card">
-              <div className="feature-icon"><Wallet size={20} /></div>
-              <h3>Smarter cash flow</h3>
-              <p>Understand liquidity, optimize rebalancing, and monitor what is driving your portfolio.</p>
-            </article>
-          </div>
-        </section>
-
-        <section className="section-block" id="markets">
-          <div className="section-header split-header">
+              {statusMessage && <p className="status-text">{statusMessage}</p>}
+            </form>
+          </section>
+        </main>
+      ) : (
+        <main className="dashboard-page">
+          <section className="dashboard-hero" id="overview">
             <div>
-              <span className="eyebrow">Market watch</span>
-              <h2>Current market pulse.</h2>
+              <span className="eyebrow">Portfolio overview</span>
+              <h2>Welcome back, Demo Investor.</h2>
             </div>
-            <a href="#products" className="text-link">See offers <ChevronRight size={16} /></a>
-          </div>
+            <div className="status-card">
+              <span className="status-dot online" />
+              {isSupabaseReady ? 'Supabase connected' : 'Demo mode enabled'}
+            </div>
+          </section>
 
-          <div className="market-grid">
-            <div className="panel-card market-panel">
-              <table className="market-table">
+          <section className="summary-grid">
+            <article className="summary-card">
+              <div className="summary-head">
+                <span>Total deposits</span>
+                <Wallet size={18} />
+              </div>
+              <strong>{dashboardStats.totalDeposits}</strong>
+            </article>
+
+            <article className="summary-card">
+              <div className="summary-head">
+                <span>Total withdrawals</span>
+                <Landmark size={18} />
+              </div>
+              <strong>{dashboardStats.totalWithdrawals}</strong>
+            </article>
+
+            <article className="summary-card">
+              <div className="summary-head">
+                <span>Pending requests</span>
+                <MessageSquareText size={18} />
+              </div>
+              <strong>{dashboardStats.pendingCount}</strong>
+            </article>
+
+            <article className="summary-card accent-card">
+              <div className="summary-head">
+                <span>Available balance</span>
+                <CheckCircle2 size={18} />
+              </div>
+              <strong>{dashboardStats.availableBalance}</strong>
+            </article>
+          </section>
+
+          <section className="panel-grid" id="deposits">
+            <div className="panel">
+              <div className="panel-header">
+                <div>
+                  <span className="eyebrow">Deposit funds</span>
+                  <h3>Funding methods</h3>
+                </div>
+                <div className="segmented-control compact">
+                  <button type="button" className={paymentTab === 'crypto' ? 'segment active' : 'segment'} onClick={() => setPaymentTab('crypto')}>
+                    Crypto
+                  </button>
+                  <button type="button" className={paymentTab === 'card' ? 'segment active' : 'segment'} onClick={() => setPaymentTab('card')}>
+                    Card
+                  </button>
+                  <button type="button" className={paymentTab === 'bank' ? 'segment active' : 'segment'} onClick={() => setPaymentTab('bank')}>
+                    Bank
+                  </button>
+                </div>
+              </div>
+
+              {paymentTab === 'crypto' && (
+                <div className="payment-body">
+                  <div className="wallet-list">
+                    {walletAddresses.map((wallet) => (
+                      <div className="wallet-item" key={wallet.symbol}>
+                        <div className="wallet-meta">
+                          <span className="coin-pill">{wallet.symbol}</span>
+                          <div>
+                            <strong>{wallet.label}</strong>
+                            <small>{wallet.network}</small>
+                          </div>
+                        </div>
+                        <code>{wallet.address}</code>
+                      </div>
+                    ))}
+                  </div>
+
+                  <form className="deposit-form" onSubmit={handleCryptoDeposit}>
+                    <div className="grid-two">
+                      <label>
+                        <span>Coin</span>
+                        <select value={cryptoForm.coin} onChange={(event) => setCryptoForm((current) => ({ ...current, coin: event.target.value }))}>
+                          <option value="BTC">Bitcoin</option>
+                          <option value="USDT">USDT</option>
+                          <option value="ETH">Ethereum</option>
+                        </select>
+                      </label>
+
+                      <label>
+                        <span>Amount</span>
+                        <input type="number" min="0" placeholder="0.00" value={cryptoForm.amount} onChange={(event) => setCryptoForm((current) => ({ ...current, amount: event.target.value }))} />
+                      </label>
+                    </div>
+
+                    <label>
+                      <span>Wallet address</span>
+                      <input type="text" placeholder="Paste your wallet address" value={cryptoForm.walletAddress} onChange={(event) => setCryptoForm((current) => ({ ...current, walletAddress: event.target.value }))} />
+                    </label>
+
+                    <label>
+                      <span>Transaction hash (optional)</span>
+                      <input type="text" placeholder="Optional confirmation hash" value={cryptoForm.txHash} onChange={(event) => setCryptoForm((current) => ({ ...current, txHash: event.target.value }))} />
+                    </label>
+
+                    <button type="submit" className="primary-button full-width">
+                      Submit crypto deposit
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {paymentTab === 'card' && (
+                <form className="deposit-form" onSubmit={handleCardDeposit}>
+                  <div className="grid-two">
+                    <label>
+                      <span>Full name</span>
+                      <input type="text" placeholder="Cardholder name" value={cardForm.fullName} onChange={(event) => setCardForm((current) => ({ ...current, fullName: event.target.value }))} />
+                    </label>
+
+                    <label>
+                      <span>Amount</span>
+                      <input type="number" min="0" placeholder="Amount in USD" value={cardForm.amount} onChange={(event) => setCardForm((current) => ({ ...current, amount: event.target.value }))} />
+                    </label>
+                  </div>
+
+                  <label>
+                    <span>Card number</span>
+                    <input type="text" placeholder="1234 5678 9012 3456" value={cardForm.cardNumber} onChange={(event) => setCardForm((current) => ({ ...current, cardNumber: event.target.value }))} />
+                  </label>
+
+                  <div className="grid-two">
+                    <label>
+                      <span>Expiry date</span>
+                      <input type="text" placeholder="MM/YY" value={cardForm.expiry} onChange={(event) => setCardForm((current) => ({ ...current, expiry: event.target.value }))} />
+                    </label>
+
+                    <label>
+                      <span>CVV</span>
+                      <input type="password" placeholder="***" value={cardForm.cvv} onChange={(event) => setCardForm((current) => ({ ...current, cvv: event.target.value }))} />
+                    </label>
+                  </div>
+
+                  <button type="submit" className="primary-button full-width">
+                    <CreditCard size={18} />
+                    Submit card deposit
+                  </button>
+                </form>
+              )}
+
+              {paymentTab === 'bank' && (
+                <form className="deposit-form" onSubmit={handleBankDeposit}>
+                  <div className="grid-two">
+                    <label>
+                      <span>Bank name</span>
+                      <input type="text" placeholder="Bank name" value={bankForm.bankName} onChange={(event) => setBankForm((current) => ({ ...current, bankName: event.target.value }))} />
+                    </label>
+
+                    <label>
+                      <span>Account holder</span>
+                      <input type="text" placeholder="Account holder" value={bankForm.accountHolder} onChange={(event) => setBankForm((current) => ({ ...current, accountHolder: event.target.value }))} />
+                    </label>
+                  </div>
+
+                  <div className="grid-two">
+                    <label>
+                      <span>Account number</span>
+                      <input type="text" placeholder="Account number" value={bankForm.accountNumber} onChange={(event) => setBankForm((current) => ({ ...current, accountNumber: event.target.value }))} />
+                    </label>
+
+                    <label>
+                      <span>Routing / SWIFT / sort code</span>
+                      <input type="text" placeholder="Routing / SWIFT / sort code" value={bankForm.routing} onChange={(event) => setBankForm((current) => ({ ...current, routing: event.target.value }))} />
+                    </label>
+                  </div>
+
+                  <div className="grid-two">
+                    <label>
+                      <span>Amount</span>
+                      <input type="number" min="0" placeholder="USD amount" value={bankForm.amount} onChange={(event) => setBankForm((current) => ({ ...current, amount: event.target.value }))} />
+                    </label>
+
+                    <label>
+                      <span>Reference</span>
+                      <input type="text" placeholder="Optional reference" value={bankForm.reference} onChange={(event) => setBankForm((current) => ({ ...current, reference: event.target.value }))} />
+                    </label>
+                  </div>
+
+                  <button type="submit" className="primary-button full-width">
+                    <Landmark size={18} />
+                    Submit bank deposit
+                  </button>
+                </form>
+              )}
+
+              {statusMessage && <p className="status-text">{statusMessage}</p>}
+            </div>
+
+            <aside className="panel sidebar-panel">
+              <div className="panel-header compact-header">
+                <div>
+                  <span className="eyebrow">Withdraw</span>
+                  <h3>Request payout</h3>
+                </div>
+              </div>
+
+              <form className="withdrawal-form" onSubmit={handleWithdrawal}>
+                <label>
+                  <span>Method</span>
+                  <select value={withdrawalForm.method} onChange={(event) => setWithdrawalForm((current) => ({ ...current, method: event.target.value }))}>
+                    <option value="crypto">Crypto</option>
+                    <option value="bank">Bank</option>
+                    <option value="card">Card</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Asset</span>
+                  <select value={withdrawalForm.asset} onChange={(event) => setWithdrawalForm((current) => ({ ...current, asset: event.target.value }))}>
+                    <option value="BTC">BTC</option>
+                    <option value="USDT">USDT</option>
+                    <option value="ETH">ETH</option>
+                    <option value="USD">USD</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Amount</span>
+                  <input type="number" min="0" placeholder="0.00" value={withdrawalForm.amount} onChange={(event) => setWithdrawalForm((current) => ({ ...current, amount: event.target.value }))} />
+                </label>
+
+                <label>
+                  <span>Destination</span>
+                  <input type="text" placeholder="Wallet or bank destination" value={withdrawalForm.destination} onChange={(event) => setWithdrawalForm((current) => ({ ...current, destination: event.target.value }))} />
+                </label>
+
+                <label>
+                  <span>Note</span>
+                  <textarea rows={3} placeholder="Optional withdrawal note" value={withdrawalForm.note} onChange={(event) => setWithdrawalForm((current) => ({ ...current, note: event.target.value }))} />
+                </label>
+
+                <button type="submit" className="secondary-button full-width">
+                  Submit withdrawal
+                </button>
+              </form>
+            </aside>
+          </section>
+
+          <section className="admin-panel" id="history">
+            <div className="panel-header">
+              <div>
+                <span className="eyebrow">Transactions</span>
+                <h3>Pending and completed activity</h3>
+              </div>
+            </div>
+
+            <div className="transaction-toolbar">
+              <div className="chip-row">
+                <span className="chip pending-chip">{pendingTransactions.length} pending</span>
+                <span className="chip success-chip">{transactions.filter((item) => item.status === 'completed').length} completed</span>
+              </div>
+            </div>
+
+            <div className="transaction-table-wrap">
+              <table className="transaction-table">
                 <thead>
                   <tr>
+                    <th>Type</th>
+                    <th>Method</th>
                     <th>Asset</th>
-                    <th>Price</th>
-                    <th>Move</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Reference</th>
+                    <th>Date</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {marketData.map((market) => (
-                    <tr key={market.symbol}>
+                  {transactions.map((transaction) => (
+                    <tr key={transaction.id}>
+                      <td>{transaction.type}</td>
+                      <td>{transaction.method}</td>
+                      <td>{transaction.asset}</td>
+                      <td>{formatCurrency(transaction.amount)}</td>
                       <td>
-                        <div className="asset-name">
-                          <span className="asset-badge">{market.symbol.slice(0, 2)}</span>
-                          <div>
-                            <strong>{market.symbol}</strong>
-                            <span>{market.name}</span>
-                          </div>
-                        </div>
+                        <span className={`status-badge ${transaction.status}`}>{transaction.status}</span>
                       </td>
-                      <td>{market.price}</td>
-                      <td className={market.trend === 'up' ? 'positive-text' : 'negative-text'}>{market.change}</td>
+                      <td>{transaction.reference}</td>
+                      <td>{transaction.createdAt}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          </section>
 
-            <div className="panel-card summary-panel">
-              <div className="summary-head">
-                <span className="tiny-label">Live allocation</span>
-                <strong>Portfolio mix</strong>
+          <section className="security-panel" id="security">
+            <div className="panel-header">
+              <div>
+                <span className="eyebrow">Security</span>
+                <h3>Compliance and verification</h3>
               </div>
-              {portfolioRows.map((row) => (
-                <div key={row.name} className="summary-row">
-                  <div>
-                    <strong>{row.name}</strong>
-                    <span>{row.value}</span>
-                  </div>
-                  <span className="positive-text">{row.change}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="section-block" id="products">
-          <div className="section-header center-header">
-            <span className="eyebrow">Investment offerings</span>
-            <h2>Choose the strategy that fits your next move.</h2>
-          </div>
-
-          <div className="product-grid">
-            {products.map((product) => (
-              <article key={product.id} className="product-card">
-                <div className="product-topline">
-                  <span className="tag-badge">{product.tag}</span>
-                  <div className="mini-icon"><Sparkles size={15} /></div>
-                </div>
-                <h3>{product.name}</h3>
-                <p>{product.description}</p>
-                <div className="price-row">
-                  <strong>{formatMoney(product.price)}</strong>
-                  <span>starting at</span>
-                </div>
-                <button className="cta-button" onClick={() => addToCart(product.id)}>
-                  Add to cart <Plus size={16} />
-                </button>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <div className="store-lower-grid">
-          <section className="section-block left-block">
-            <div className="section-header">
-              <span className="eyebrow">Performance</span>
-              <h2>Investor-grade reporting made readable.</h2>
             </div>
 
-            <div className="insight-box">
-              <div className="insight-head">
+            <div className="security-grid">
+              <div className="security-item">
+                <ShieldCheck size={18} />
                 <div>
-                  <span className="tiny-label">Monthly return</span>
-                  <strong>+8.7%</strong>
+                  <strong>KYC verification</strong>
+                  <p>Identity verification required before large withdrawals are approved.</p>
                 </div>
-                <span className="positive-pill">Up</span>
               </div>
 
-              <div className="mini-bars" aria-hidden="true">
-                <span style={{ height: '38%' }} />
-                <span style={{ height: '52%' }} />
-                <span style={{ height: '46%' }} />
-                <span style={{ height: '68%' }} />
-                <span style={{ height: '80%' }} />
-                <span style={{ height: '90%' }} />
+              <div className="security-item">
+                <Bitcoin size={18} />
+                <div>
+                  <strong>Wallet tracking</strong>
+                  <p>Crypto deposits are matched against wallet addresses and transaction hashes.</p>
+                </div>
+              </div>
+
+              <div className="security-item">
+                <CreditCard size={18} />
+                <div>
+                  <strong>Secure payment flow</strong>
+                  <p>Card details should be processed with a hosted payment provider such as Stripe.</p>
+                </div>
               </div>
             </div>
           </section>
-
-          <aside className="cart-panel">
-            <div className="cart-header">
-              <div>
-                <span className="tiny-label">Cart</span>
-                <h3>{itemCount} items</h3>
-              </div>
-              <div className="cart-icon"><ShoppingCart size={18} /></div>
-            </div>
-
-            {cartItems.length === 0 ? (
-              <div className="empty-cart">
-                <p>Your cart is empty.</p>
-                <span>Add an offering to start building your strategy.</span>
-              </div>
-            ) : (
-              <div className="cart-items">
-                {cartItems.map((item) => (
-                  <div key={item.id} className="cart-item">
-                    <div>
-                      <strong>{item.name}</strong>
-                      <span>{formatMoney(item.price)} each</span>
-                    </div>
-                    <div className="quantity-controls">
-                      <button type="button" onClick={() => updateQuantity(item.id, -1)} aria-label={`Decrease ${item.name}`}>
-                        <Minus size={14} />
-                      </button>
-                      <span>{item.quantity}</span>
-                      <button type="button" onClick={() => updateQuantity(item.id, 1)} aria-label={`Increase ${item.name}`}>
-                        <Plus size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="cart-summary">
-              <div>
-                <span>Subtotal</span>
-                <strong>{formatMoney(subtotal)}</strong>
-              </div>
-              <button className="primary-button checkout-button">Checkout</button>
-            </div>
-          </aside>
-        </div>
-
-        <section className="section-block">
-          <div className="auth-card">
-            <div className="section-header left-header">
-              <span className="eyebrow">Account access</span>
-              <h2>Supabase-ready login</h2>
-            </div>
-            <div className="connection-status">
-              <span className={`status-dot ${isSupabaseReady ? 'online' : 'offline'}`} />
-              {isSupabaseReady ? 'Supabase connected' : 'Demo mode (Supabase not configured)'}
-            </div>
-          </div>
-        </section>
-
-        <section className="section-block contact-block" id="contact">
-          <div className="cta-panel">
-            <div className="cta-copy">
-              <span className="eyebrow">Ready to build with confidence?</span>
-              <h2>Let’s shape a portfolio strategy that feels premium and practical.</h2>
-            </div>
-
-            <form className="lead-form">
-              <div className="form-row">
-                <input type="text" placeholder="Full name" aria-label="Full name" />
-                <input type="email" placeholder="Email address" aria-label="Email address" />
-              </div>
-              <textarea rows={4} placeholder="Tell us about your goals" aria-label="Your goals" />
-              <button type="submit" className="primary-button">
-                Request a consultation <MessageCircleMore size={18} />
-              </button>
-            </form>
-          </div>
-        </section>
-
-        <section className="section-block">
-          <div className="section-header">
-            <span className="eyebrow">Client feedback</span>
-            <h2>The trust and polish clients expect.</h2>
-          </div>
-          <div className="testimonial-grid">
-            {testimonialData.map((item) => (
-              <article key={item.name} className="testimonial-card">
-                <div className="stars" aria-label="5 star rating">
-                  {[...Array(5)].map((_, idx) => (
-                    <Star key={`${item.name}-${idx}`} size={14} fill="currentColor" />
-                  ))}
-                </div>
-                <p>{item.quote}</p>
-                <div className="person-block">
-                  <strong>{item.name}</strong>
-                  <span>{item.role}</span>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="section-block">
-          <div className="section-header">
-            <span className="eyebrow">Questions</span>
-            <h2>Everything you need to know before getting started.</h2>
-          </div>
-
-          <div className="faq-list">
-            {faqs.map((faq) => (
-              <details key={faq.question} className="faq-item" open>
-                <summary>{faq.question}</summary>
-                <p>{faq.answer}</p>
-              </details>
-            ))}
-          </div>
-        </section>
-      </main>
-
-      <footer className="store-footer">
-        <div>
-          <strong>Vexel Investment</strong>
-          <span>Private strategy • portfolio planning • modern advisory</span>
-        </div>
-
-        <div className="footer-meta">
-          <span>hello@vexelinvestment.com</span>
-          <span>© 2026 Vexel</span>
-        </div>
-      </footer>
+        </main>
+      )}
     </div>
   );
 }
-
-export default App;
